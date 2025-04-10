@@ -309,14 +309,14 @@ namespace BundleSystem
             return AssetbundleBuildManifest.TryParse(cachedManifestStr, out manifest);
         }
 
-        public static BundleAsyncOperation<AssetbundleBuildManifest> GetManifest()
+        public static BundleAsyncOperation<AssetbundleBuildManifest> GetManifest(int timeout = 5)
         {
             var result = new BundleAsyncOperation<AssetbundleBuildManifest>();
-            s_Helper.StartCoroutine(CoGetManifest(result));
+            s_Helper.StartCoroutine(CoGetManifest(result, timeout));
             return result;
         }
 
-        static IEnumerator CoGetManifest(BundleAsyncOperation<AssetbundleBuildManifest> result)
+        static IEnumerator CoGetManifest(BundleAsyncOperation<AssetbundleBuildManifest> result, int timeout = 5)
         {
             if (!Initialized)
             {
@@ -336,6 +336,7 @@ namespace BundleSystem
             string reqUrl = Utility.CombinePath(RemoteURL, AssetbundleBuildSettings.ManifestFileName).Replace('\\', '/');
             reqUrl += $"?channel={Channel}";
             var manifestReq = UnityWebRequest.Get(reqUrl);
+            manifestReq.timeout = timeout;
             yield return manifestReq.SendWebRequest();
 
             if(result.IsCancelled)
