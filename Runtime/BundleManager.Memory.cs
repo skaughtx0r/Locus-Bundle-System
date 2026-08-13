@@ -222,6 +222,8 @@ namespace BundleSystem
         //we should check entire collection at least in 5 seconds, calculate trackCount for that purpose
         private static void Update()
         {
+            UpdateUnloadUnused();
+
 #if UNITY_EDITOR
             if (UseAssetDatabase) return; //don't need to run this on assetdatabase mode
 #endif
@@ -266,6 +268,44 @@ namespace BundleSystem
             }
         }
 
+        /// <summary>
+        /// Releases a bundle's loaded assets ahead of swapping in a freshly downloaded copy.
+        ///
+        /// This deliberately uses Unload(false), not Unload(true). Unload(true) destroys every
+        /// object the bundle produced regardless of who still references it, and references held
+        /// by objects that survive the swap are never repaired -- they keep pointing at the
+        /// destroyed instances even though equivalent objects exist in the reloaded bundle. That
+        /// bites composite assets hardest: a ScriptableObject whose sub-assets come back as
+        /// "missing" after a reload, silently, with no error at the point of failure.
+        ///
+        /// Unload(false) frees the bundle's own loaded data and leaves the produced objects
+        /// alive, so nothing can dangle. The memory those objects hold is still reclaimed -- by
+        /// the UnloadUnusedAssets sweep requested here, which collects exactly the ones nothing
+        /// references any more. That is the same memory in the common case (a bundle only gets
+        /// here once its ref count reached zero) but it can never corrupt a live reference.
+        /// </summary>
+        private static void UnloadForReload(LoadedBundle loadedBundle)
+        {
+            loadedBundle.Bundle.Unload(false);
+            s_UnloadUnusedRequested = true;
+        }
+
+        //A sweep is requested after reloads rather than run inline: reloads arrive in bursts (a
+        //scene unload can release several bundles in the same frame) and UnloadUnusedAssets is a
+        //full heap walk, so the requests are coalesced into one async sweep in Update.
+        private static bool s_UnloadUnusedRequested = false;
+        private static AsyncOperation s_UnloadUnusedOperation = null;
+
+        private static void UpdateUnloadUnused()
+        {
+            if (!s_UnloadUnusedRequested) return;
+            //never stack sweeps
+            if (s_UnloadUnusedOperation != null && !s_UnloadUnusedOperation.isDone) return;
+            s_UnloadUnusedRequested = false;
+            s_UnloadUnusedOperation = Resources.UnloadUnusedAssets();
+            if (LogMessages) Debug.Log("Requested UnloadUnusedAssets after bundle reload");
+        }
+
         private static void ReloadBundle(string bundleName)
         {
             if (!AutoReloadBundle) return;
@@ -284,7 +324,7 @@ namespace BundleSystem
 
             if(loadedBundle.RequestForReload != null)
             {
-                loadedBundle.Bundle.Unload(true);
+                UnloadForReload(loadedBundle);
                 loadedBundle.Bundle = DownloadHandlerAssetBundle.GetContent(loadedBundle.RequestForReload);
                 //stored request needs to be disposed
                 loadedBundle.RequestForReload.Dispose();
@@ -323,7 +363,7 @@ namespace BundleSystem
             if(!s_BundleRefCounts.TryGetValue(bundleName, out var refCount) || refCount == 0)
             {
                 if (LogMessages) Debug.Log($"Reloaded Bundle {bundleName}");
-                loadedBundle.Bundle.Unload(true);
+                UnloadForReload(loadedBundle);
                 loadedBundle.Bundle = DownloadHandlerAssetBundle.GetContent(bundleReq);
                 bundleReq.Dispose();
             }
