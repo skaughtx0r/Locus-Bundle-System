@@ -268,31 +268,9 @@ namespace BundleSystem
             }
         }
 
-        /// <summary>
-        /// Releases a bundle's loaded assets ahead of swapping in a freshly downloaded copy.
-        ///
-        /// This deliberately uses Unload(false), not Unload(true). Unload(true) destroys every
-        /// object the bundle produced regardless of who still references it, and references held
-        /// by objects that survive the swap are never repaired -- they keep pointing at the
-        /// destroyed instances even though equivalent objects exist in the reloaded bundle. That
-        /// bites composite assets hardest: a ScriptableObject whose sub-assets come back as
-        /// "missing" after a reload, silently, with no error at the point of failure.
-        ///
-        /// Unload(false) frees the bundle's own loaded data and leaves the produced objects
-        /// alive, so nothing can dangle. The memory those objects hold is still reclaimed -- by
-        /// the UnloadUnusedAssets sweep requested here, which collects exactly the ones nothing
-        /// references any more. That is the same memory in the common case (a bundle only gets
-        /// here once its ref count reached zero) but it can never corrupt a live reference.
-        /// </summary>
-        private static void UnloadForReload(LoadedBundle loadedBundle)
-        {
-            loadedBundle.Bundle.Unload(false);
-            s_UnloadUnusedRequested = true;
-        }
-
-        //A sweep is requested after reloads rather than run inline: reloads arrive in bursts (a
-        //scene unload can release several bundles in the same frame) and UnloadUnusedAssets is a
-        //full heap walk, so the requests are coalesced into one async sweep in Update.
+        //A sweep is requested rather than run inline: bundles are released in bursts (one scene
+        //unload can drop several ref counts to zero in the same frame) and UnloadUnusedAssets is
+        //a full heap walk, so the requests are coalesced into one async sweep here.
         private static bool s_UnloadUnusedRequested = false;
         private static AsyncOperation s_UnloadUnusedOperation = null;
 
@@ -303,76 +281,39 @@ namespace BundleSystem
             if (s_UnloadUnusedOperation != null && !s_UnloadUnusedOperation.isDone) return;
             s_UnloadUnusedRequested = false;
             s_UnloadUnusedOperation = Resources.UnloadUnusedAssets();
-            if (LogMessages) Debug.Log("Requested UnloadUnusedAssets after bundle reload");
+            if (LogMessages) Debug.Log("Sweeping unused assets for released bundles");
         }
 
+        /// <summary>
+        /// Called when a bundle's reference count reaches zero, to give back the memory its
+        /// assets were holding.
+        ///
+        /// This used to unload the bundle with Unload(true) and swap in a freshly downloaded
+        /// copy. That reclaimed the memory but corrupted the bundle's contents for anyone who
+        /// loaded from it afterwards: Unload(true) destroys every object the bundle produced,
+        /// and the objects a later load produces do NOT get their cross-references re-pointed.
+        /// A composite asset -- a ScriptableObject whose modules are sub-assets, say -- comes
+        /// back from the swap with those sub-references reading as missing, while the correct
+        /// objects sit in the reloaded bundle unreferenced. It fails silently, and nowhere near
+        /// the swap that caused it.
+        ///
+        /// Unloading nothing and sweeping instead reclaims the same memory in the case that
+        /// matters. A bundle only gets here once nothing references it, so its assets are
+        /// exactly what UnloadUnusedAssets collects -- and assets that ARE still referenced are
+        /// kept rather than destroyed out from under their holder.
+        /// </summary>
         private static void ReloadBundle(string bundleName)
         {
             if (!AutoReloadBundle) return;
 
-            if (!s_AssetBundles.TryGetValue(bundleName, out var loadedBundle))
+            if (!s_AssetBundles.ContainsKey(bundleName))
             {
                 if (LogMessages) Debug.Log("Bundle To Reload does not exist");
                 return;
             }
 
-            if(loadedBundle.IsReloading)
-            {
-                if (LogMessages) Debug.Log("Bundle is already reloading");
-                return;
-            }
-
-            if(loadedBundle.RequestForReload != null)
-            {
-                UnloadForReload(loadedBundle);
-                loadedBundle.Bundle = DownloadHandlerAssetBundle.GetContent(loadedBundle.RequestForReload);
-                //stored request needs to be disposed
-                loadedBundle.RequestForReload.Dispose();
-                loadedBundle.RequestForReload = null;
-            }
-            else
-            {
-                s_Helper.StartCoroutine(ReloadBundle(bundleName, loadedBundle));
-            }
-        }
-
-        static IEnumerator ReloadBundle(string bundleName, LoadedBundle loadedBundle)
-        {
-            if (LogMessages) Debug.Log($"Start Reloading Bundle {bundleName}");
-            var bundleReq = loadedBundle.IsLocalBundle? UnityWebRequestAssetBundle.GetAssetBundle(loadedBundle.LoadPath) : 
-                UnityWebRequestAssetBundle.GetAssetBundle(loadedBundle.LoadPath, new CachedAssetBundle(bundleName, loadedBundle.Hash));
-
-            loadedBundle.IsReloading = true;
-            yield return bundleReq.SendWebRequest();
-            loadedBundle.IsReloading = false;
-
-            if (bundleReq.isNetworkError || bundleReq.isHttpError)
-            {
-                Debug.LogError($"Bundle reload error { bundleReq.error }");
-                yield break;
-            }
-
-            if(!s_AssetBundles.TryGetValue(bundleName, out var currentLoadedBundle) || currentLoadedBundle.Hash != loadedBundle.Hash)
-            {
-                if (LogMessages) Debug.Log("Bundle To Reload does not exist(changed during loaing)");
-                bundleReq.Dispose();
-                yield break;
-            }
-
-            //if we can swap now
-            if(!s_BundleRefCounts.TryGetValue(bundleName, out var refCount) || refCount == 0)
-            {
-                if (LogMessages) Debug.Log($"Reloaded Bundle {bundleName}");
-                UnloadForReload(loadedBundle);
-                loadedBundle.Bundle = DownloadHandlerAssetBundle.GetContent(bundleReq);
-                bundleReq.Dispose();
-            }
-            else
-            {
-                if (LogMessages) Debug.Log($"Reloaded Bundle Cached for later use {bundleName}");
-                //store request for laster use
-                loadedBundle.RequestForReload = bundleReq;
-            }
+            if (LogMessages) Debug.Log($"Requested asset sweep for released bundle {bundleName}");
+            s_UnloadUnusedRequested = true;
         }
     }
 }
