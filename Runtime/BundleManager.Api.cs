@@ -1,4 +1,10 @@
-﻿using System.Collections.Generic;
+﻿#if UNITY_6000_6_OR_NEWER
+// Unity 6.6: GetInstanceID() and the EntityId <-> int casts are compile errors; key by EntityId.
+using ObjectId = UnityEngine.EntityId;
+#else
+using ObjectId = System.Int32;
+#endif
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using UnityEngine;
@@ -256,7 +262,7 @@ namespace BundleSystem
             }
 #endif
             if(!Initialized) throw new System.Exception("BundleManager not initialized, try initialize first!");
-            var id = original.GetInstanceID();
+            var id = IdOf(original);
             if (original.scene.name != null || !s_TrackingObjects.TryGetValue(id, out var tracking)) throw new System.Exception("Object must be valid bundle object");
             var instantiated = GameObject.Instantiate(original);
             var tupleKey = new TupleObjectKey(instantiated, original);
@@ -279,7 +285,7 @@ namespace BundleSystem
             }
 #endif
             if(!Initialized) throw new System.Exception("BundleManager not initialized, try initialize first!");
-            var id = original.GetInstanceID();
+            var id = IdOf(original);
             if (original.scene.name != null || !s_TrackingObjects.TryGetValue(id, out var tracking)) throw new System.Exception("Object must be valid bundle object");
             var instantiated = GameObject.Instantiate(original, parent);
             var tupleKey = new TupleObjectKey(instantiated, original);
@@ -302,7 +308,7 @@ namespace BundleSystem
             }
 #endif
             if(!Initialized) throw new System.Exception("BundleManager not initialized, try initialize first!");
-            var id = original.GetInstanceID();
+            var id = IdOf(original);
             if (original.scene.name != null || !s_TrackingObjects.TryGetValue(id, out var tracking)) throw new System.Exception("Object must be valid bundle object");
             var instantiated = GameObject.Instantiate(original, parent, instantiateInWorldSpace);
             var tupleKey = new TupleObjectKey(instantiated, original);
@@ -324,7 +330,7 @@ namespace BundleSystem
             }
 #endif
             if(!Initialized) throw new System.Exception("BundleManager not initialized, try initialize first!");
-            var id = original.GetInstanceID();
+            var id = IdOf(original);
             if (original.scene.name != null || !s_TrackingObjects.TryGetValue(id, out var tracking)) throw new System.Exception("Object must be valid bundle object");
             var instantiated = GameObject.Instantiate(original, position, rotation);
             var tupleKey = new TupleObjectKey(instantiated, original);
@@ -347,7 +353,7 @@ namespace BundleSystem
             }
 #endif
             if(!Initialized) throw new System.Exception("BundleManager not initialized, try initialize first!");
-            var id = original.GetInstanceID();
+            var id = IdOf(original);
             if (original.scene.name != null || !s_TrackingObjects.TryGetValue(id, out var tracking)) throw new System.Exception("Object must be valid bundle object");
             var instantiated = GameObject.Instantiate(original, position, rotation, parent);
             var tupleKey = new TupleObjectKey(instantiated, original);

@@ -1,4 +1,10 @@
-﻿using System.Collections;
+﻿#if UNITY_6000_6_OR_NEWER
+// Unity 6.6: GetInstanceID() and the EntityId <-> int casts are compile errors; key by EntityId.
+using ObjectId = UnityEngine.EntityId;
+#else
+using ObjectId = System.Int32;
+#endif
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Networking;
@@ -15,7 +21,7 @@ namespace BundleSystem
         private static Dictionary<string, int> s_BundleDirectUseCount = new Dictionary<string, int>(10);
 
         //obect weak reference tracking
-        private static IndexedDictionary<int, TrackingObject> s_TrackingObjects = new IndexedDictionary<int, TrackingObject>(50);
+        private static IndexedDictionary<ObjectId, TrackingObject> s_TrackingObjects = new IndexedDictionary<ObjectId, TrackingObject>(50);
         //game object destroy tracking, as well as owner tracking(with original object)
         private static IndexedDictionary<TupleObjectKey, TrackingOwner> s_TrackingOwners = new IndexedDictionary<TupleObjectKey, TrackingOwner>(50);
         //game object tracking(only with loaded bundle)
@@ -66,7 +72,7 @@ namespace BundleSystem
 
         private static void TrackObjectInternal(Object obj, LoadedBundle loadedBundle)
         {
-            var id = obj.GetInstanceID();
+            var id = IdOf(obj);
             if (s_TrackingObjects.TryGetValue(id, out var trackingObject))
             {
                 trackingObject.RefCount++;
@@ -84,7 +90,7 @@ namespace BundleSystem
             int retainCount = 0;
             for(int i = 0; i < objs.Length; i++)
             {
-                var id = objs[0].GetInstanceID();
+                var id = IdOf(objs[0]);
                 if (s_TrackingObjects.TryGetValue(id, out var trackingObject))
                 {
                     trackingObject.RefCount++;
@@ -102,7 +108,7 @@ namespace BundleSystem
 
         private static void UntrackObjectInternal(Object obj)
         {
-            var id = obj.GetInstanceID();
+            var id = IdOf(obj);
             if (s_TrackingObjects.TryGetValue(id, out var trackingObject))
             {
                 trackingObject.RefCount--;
@@ -144,7 +150,7 @@ namespace BundleSystem
             if (UseAssetDatabase) return loaded; //always valid on assetdatabase mode
 #endif
             if (owner.scene.name == null) throw new System.Exception("GameObject is not instantiated one");
-            var id = loaded.GetInstanceID();
+            var id = IdOf(loaded);
             if (!s_TrackingObjects.TryGetValue(id, out var tracking)) throw new System.Exception("Original Object is not tracked");
             var tupleKey = new TupleObjectKey(owner, loaded);
             if (s_TrackingOwners.ContainsKey(tupleKey)) throw new System.Exception("Already Tracked by this combination");

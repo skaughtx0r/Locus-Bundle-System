@@ -1,4 +1,10 @@
-﻿using System.Collections;
+﻿#if UNITY_6000_6_OR_NEWER
+// Unity 6.6: GetInstanceID() and the EntityId <-> int casts are compile errors; key by EntityId.
+using ObjectId = UnityEngine.EntityId;
+#else
+using ObjectId = System.Int32;
+#endif
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -6,16 +12,25 @@ namespace BundleSystem
 {
     public static partial class BundleManager
     {
+        internal static ObjectId IdOf(Object obj)
+        {
+#if UNITY_6000_6_OR_NEWER
+            return obj.GetEntityId();
+#else
+            return obj.GetInstanceID();
+#endif
+        }
+
         struct TupleObjectKey : IEqualityComparer<TupleObjectKey>
         {
             public TupleObjectKey(Object a, Object b)
             {
-                m_IdA = a.GetInstanceID();
-                m_IdB = b.GetInstanceID();
+                m_IdA = IdOf(a);
+                m_IdB = IdOf(b);
             }
 
-            public int m_IdA;
-            public int m_IdB;
+            public ObjectId m_IdA;
+            public ObjectId m_IdB;
 
             public bool Equals(TupleObjectKey x, TupleObjectKey y)
             {
@@ -26,7 +41,8 @@ namespace BundleSystem
             {
                 unchecked
                 {
-                    return ((m_IdA << 5) + m_IdA) ^ m_IdB;
+                    int a = obj.m_IdA.GetHashCode();
+                    return ((a << 5) + a) ^ obj.m_IdB.GetHashCode();
                 }
             }
         }
